@@ -47,8 +47,8 @@ services:
 
   db:
     restart: "no"
-    ports:
-      - "5432:5432"
+    # ports:
+    #   - "5432:5432"  # disabled: local postgres already on 5432
 
   adminer:
     restart: "no"
@@ -78,9 +78,9 @@ services:
             - .venv
         - path: ./backend/pyproject.toml
           action: rebuild
-    # TODO: remove once coverage is done locally
     volumes:
       - ./backend/htmlcov:/app/backend/htmlcov
+      - docvault-uploads:/app/uploads
     environment:
       SMTP_HOST: "mailcatcher"
       SMTP_PORT: "1025"
@@ -122,7 +122,7 @@ services:
       - MAILCATCHER_HOST=http://mailcatcher:1080
       # For the reports when run locally
       - PLAYWRIGHT_HTML_HOST=0.0.0.0
-      - CI=${CI}
+      - CI=${CI:-}
     volumes:
       - ./frontend/blob-report:/app/frontend/blob-report
       - ./frontend/test-results:/app/frontend/test-results
@@ -133,3 +133,6 @@ networks:
   traefik-public:
     # For local dev, don't expect an external Traefik network
     external: false
+
+volumes:
+  docvault-uploads:

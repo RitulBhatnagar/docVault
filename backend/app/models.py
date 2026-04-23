@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime, timezone
-
 from pydantic import EmailStr
 from sqlalchemy import DateTime
 from sqlmodel import Field, Relationship, SQLModel
@@ -127,3 +126,69 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+# ---------- DocVault ----------
+
+class DocumentBase(SQLModel):
+    title: str = Field(min_length=1, max_length=255)
+    creator: str = Field(min_length=1, max_length=255)
+    format: str = Field(min_length=1, max_length=50)
+    subject: str | None = Field(default=None, max_length=500)
+
+
+class DocumentCreate(DocumentBase):
+    pass
+
+
+class Document(DocumentBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    versions: list["DocumentVersion"] = Relationship(
+        back_populates="document", cascade_delete=True
+    )
+
+
+class DocumentVersionBase(SQLModel):
+    version_number: int
+    sha256: str = Field(max_length=64)
+    original_filename: str = Field(max_length=255)
+    file_size: int
+
+
+class DocumentVersion(DocumentVersionBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    document_id: uuid.UUID = Field(
+        foreign_key="document.id", nullable=False, ondelete="CASCADE"
+    )
+    file_path: str = Field(max_length=500)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    document: Document = Relationship(back_populates="versions")
+
+
+class DocumentVersionPublic(DocumentVersionBase):
+    id: uuid.UUID
+    document_id: uuid.UUID
+    created_at: datetime | None = None
+
+
+class DocumentPublic(DocumentBase):
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    created_at: datetime | None = None
+
+
+class DocumentWithVersions(DocumentPublic):
+    versions: list[DocumentVersionPublic] = []
+
+
+class DocumentsPublic(SQLModel):
+    data: list[DocumentPublic]
+    count: int

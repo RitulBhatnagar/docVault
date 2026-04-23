@@ -1,11 +1,7 @@
 import { Link } from "@tanstack/react-router"
+import { FileText } from "lucide-react"
 
-import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
-import icon from "/assets/images/fastapi-icon.svg"
-import iconLight from "/assets/images/fastapi-icon-light.svg"
-import logo from "/assets/images/fastapi-logo.svg"
-import logoLight from "/assets/images/fastapi-logo-light.svg"
 
 interface LogoProps {
   variant?: "full" | "icon" | "responsive"
@@ -13,48 +9,25 @@ interface LogoProps {
   asLink?: boolean
 }
 
-export function Logo({
-  variant = "full",
-  className,
-  asLink = true,
-}: LogoProps) {
-  const { resolvedTheme } = useTheme()
-  const isDark = resolvedTheme === "dark"
-
-  const fullLogo = isDark ? logoLight : logo
-  const iconLogo = isDark ? iconLight : icon
-
+export function Logo({ variant = "full", className, asLink = true }: LogoProps) {
   const content =
-    variant === "responsive" ? (
+    variant === "icon" ? (
+      <FileText className={cn("size-5 text-primary", className)} />
+    ) : variant === "responsive" ? (
       <>
-        <img
-          src={fullLogo}
-          alt="FastAPI"
-          className={cn(
-            "h-6 w-auto group-data-[collapsible=icon]:hidden",
-            className,
-          )}
-        />
-        <img
-          src={iconLogo}
-          alt="FastAPI"
-          className={cn(
-            "size-5 hidden group-data-[collapsible=icon]:block",
-            className,
-          )}
-        />
+        <div className={cn("flex items-center gap-2 group-data-[collapsible=icon]:hidden", className)}>
+          <FileText className="size-5 text-primary" />
+          <span className="font-bold text-lg tracking-tight">DocVault</span>
+        </div>
+        <FileText className="size-5 text-primary hidden group-data-[collapsible=icon]:block" />
       </>
     ) : (
-      <img
-        src={variant === "full" ? fullLogo : iconLogo}
-        alt="FastAPI"
-        className={cn(variant === "full" ? "h-6 w-auto" : "size-5", className)}
-      />
+      <div className={cn("flex items-center gap-2", className)}>
+        <FileText className="size-6 text-primary" />
+        <span className="font-bold text-xl tracking-tight">DocVault</span>
+      </div>
     )
 
-  if (!asLink) {
-    return content
-  }
-
+  if (!asLink) return content
   return <Link to="/">{content}</Link>
 }

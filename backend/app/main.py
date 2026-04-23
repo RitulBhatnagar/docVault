@@ -1,6 +1,7 @@
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
@@ -8,6 +9,8 @@ from app.core.config import settings
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
+    if not route.tags:
+        return route.name
     return f"{route.tags[0]}-{route.name}"
 
 
@@ -31,3 +34,5 @@ if settings.all_cors_origins:
     )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+Instrumentator().instrument(app).expose(app)

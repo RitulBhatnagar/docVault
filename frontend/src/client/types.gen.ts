@@ -238,3 +238,60 @@ export type UtilsTestEmailData = {
 export type UtilsTestEmailResponse = (Message);
 
 export type UtilsHealthCheckResponse = (boolean);
+
+export type DocumentPublic = {
+    title: string;
+    creator: string;
+    format: string;
+    subject?: string | null;
+    id: string;
+    owner_id: string;
+    created_at?: string | null;
+};
+
+export type DocumentVersionPublic = {
+    version_number: number;
+    sha256: string;
+    original_filename: string;
+    file_size: number;
+    id: string;
+    document_id: string;
+    created_at?: string | null;
+};
+
+export type DocumentWithVersions = DocumentPublic & {
+    versions: Array<DocumentVersionPublic>;
+};
+
+export type DocumentsPublic = {
+    data: Array<DocumentPublic>;
+    count: number;
+};
+
+export type DocumentsReadDocumentsData = {
+    skip?: number;
+    limit?: number;
+};
+export type DocumentsReadDocumentsResponse = DocumentsPublic;
+
+export type DocumentsSearchDocumentsData = {
+    q: string;
+    skip?: number;
+    limit?: number;
+};
+export type DocumentsSearchDocumentsResponse = DocumentsPublic;
+
+export type DocumentsGetDocumentData = {
+    id: string;
+};
+export type DocumentsGetDocumentResponse = DocumentWithVersions;
+
+export type DocumentsListVersionsData = {
+    id: string;
+};
+export type DocumentsListVersionsResponse = Array<DocumentVersionPublic>;
+
+export type DocumentsDeleteDocumentData = {
+    id: string;
+};
+export type DocumentsDeleteDocumentResponse = Message;
