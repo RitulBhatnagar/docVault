@@ -4,6 +4,7 @@ import { Suspense, useRef, useState } from "react"
 
 import { DocumentsService, type DocumentPublic } from "@/client"
 import { Button } from "@/components/ui/button"
+import { VersionPreviewButton } from "./PreviewDocument"
 import {
   Dialog,
   DialogContent,
@@ -74,13 +75,21 @@ function VersionsList({ document: doc }: { document: DocumentPublic }) {
             <span className="text-xs text-muted-foreground font-mono">{v.sha256.slice(0, 16)}…</span>
             <span className="text-xs text-muted-foreground">{formatBytes(v.file_size)}</span>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => handleDownload(v.id, v.original_filename)}
-          >
-            <Download className="size-4" />
-          </Button>
+          <div className="flex gap-1">
+            <VersionPreviewButton
+              docId={doc.id}
+              versionId={v.id}
+              filename={v.original_filename}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleDownload(v.id, v.original_filename)}
+              title="Download"
+            >
+              <Download className="size-4" />
+            </Button>
+          </div>
         </div>
       ))}
     </div>

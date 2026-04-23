@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import DeleteDocument from "./DeleteDocument"
 import DocumentVersions from "./DocumentVersions"
+import { ManageTags } from "./ManageTags"
+import { PreviewDocument } from "./PreviewDocument"
 
 interface DocumentActionsMenuProps {
   document: DocumentPublic
@@ -27,6 +29,8 @@ export function DocumentActionsMenu({ document }: DocumentActionsMenuProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <PreviewDocument document={document} onClose={() => setIsOpen(false)} />
+        <ManageTags document={document} onClose={() => setIsOpen(false)} />
         <DocumentVersions document={document} />
         <DeleteDocument id={document.id} onSuccess={() => setIsOpen(false)} />
       </DropdownMenuContent>

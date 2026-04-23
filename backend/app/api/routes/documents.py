@@ -1,21 +1,26 @@
 import hashlib
 import uuid
+from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
-from sqlmodel import func, select
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
+from sqlalchemy.orm import selectinload
+from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.models import (
     Document,
     DocumentPublic,
+    DocumentTag,
     DocumentVersion,
     DocumentVersionPublic,
     DocumentWithVersions,
     DocumentsPublic,
     Message,
+    Tag,
+    TagPublic,
 )
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -111,22 +116,47 @@ def list_documents(
     current_user: CurrentUser,
     skip: int = 0,
     limit: int = 100,
+    sort_by: Literal["created_at", "title", "format", "creator"] = Query(default="created_at"),
+    sort_order: Literal["asc", "desc"] = Query(default="desc"),
+    format: str | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    tag_id: uuid.UUID | None = Query(default=None),
 ) -> Any:
-    if current_user.is_superuser:
-        count = session.exec(select(func.count()).select_from(Document)).one()
-        docs = session.exec(select(Document).offset(skip).limit(limit)).all()
-    else:
-        count = session.exec(
-            select(func.count())
-            .select_from(Document)
-            .where(Document.owner_id == current_user.id)
-        ).one()
-        docs = session.exec(
-            select(Document)
-            .where(Document.owner_id == current_user.id)
-            .offset(skip)
-            .limit(limit)
-        ).all()
+    sort_col_map = {
+        "created_at": Document.created_at,
+        "title": Document.title,
+        "format": Document.format,
+        "creator": Document.creator,
+    }
+    sort_col = sort_col_map[sort_by]
+    order_expr = col(sort_col).asc() if sort_order == "asc" else col(sort_col).desc()
+
+    count_stmt = select(func.count()).select_from(Document)
+    docs_stmt = select(Document).options(selectinload(Document.tags))  # type: ignore[arg-type]
+
+    if not current_user.is_superuser:
+        count_stmt = count_stmt.where(Document.owner_id == current_user.id)
+        docs_stmt = docs_stmt.where(Document.owner_id == current_user.id)
+    if format:
+        count_stmt = count_stmt.where(col(Document.format).ilike(f"%{format}%"))
+        docs_stmt = docs_stmt.where(col(Document.format).ilike(f"%{format}%"))
+    if date_from:
+        count_stmt = count_stmt.where(func.date(Document.created_at) >= date_from)
+        docs_stmt = docs_stmt.where(func.date(Document.created_at) >= date_from)
+    if date_to:
+        count_stmt = count_stmt.where(func.date(Document.created_at) <= date_to)
+        docs_stmt = docs_stmt.where(func.date(Document.created_at) <= date_to)
+    if tag_id:
+        count_stmt = count_stmt.where(
+            Document.id.in_(select(DocumentTag.document_id).where(DocumentTag.tag_id == tag_id))  # type: ignore[attr-defined]
+        )
+        docs_stmt = docs_stmt.where(
+            Document.id.in_(select(DocumentTag.document_id).where(DocumentTag.tag_id == tag_id))  # type: ignore[attr-defined]
+        )
+
+    count = session.exec(count_stmt).one()
+    docs = session.exec(docs_stmt.order_by(order_expr).offset(skip).limit(limit)).all()
     return DocumentsPublic(data=list(docs), count=count)
 
 
@@ -213,6 +243,132 @@ def list_versions(
     ).all()
 
 
+MIME_MAP: dict[str, str] = {
+    "pdf": "application/pdf",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "svg": "image/svg+xml",
+    "txt": "text/plain",
+    "md": "text/plain",
+    "csv": "text/plain",
+}
+
+_HTML_STYLE = (
+    "<style>body{font-family:sans-serif;font-size:13px;padding:12px;margin:0}"
+    "table{border-collapse:collapse;width:100%}"
+    "th{background:#f3f4f6;font-weight:600;text-align:left}"
+    "th,td{border:1px solid #d1d5db;padding:6px 10px;white-space:nowrap}"
+    "tr:nth-child(even){background:#f9fafb}"
+    "h3{margin:16px 0 6px;font-size:14px;color:#374151}"
+    "</style>"
+)
+
+
+def _xlsx_to_html(path: Path) -> str:
+    import openpyxl  # noqa: PLC0415
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    parts = [f"<html><head>{_HTML_STYLE}</head><body>"]
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        parts.append(f"<h3>{sheet_name}</h3><table>")
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            tag = "th" if i == 0 else "td"
+            cells = "".join(f"<{tag}>{'' if v is None else v}</{tag}>" for v in row)
+            parts.append(f"<tr>{cells}</tr>")
+        parts.append("</table>")
+    parts.append("</body></html>")
+    return "".join(parts)
+
+
+def _docx_to_html(path: Path) -> str:
+    from docx import Document as DocxDocument  # noqa: PLC0415
+    doc = DocxDocument(str(path))
+    parts = [f"<html><head>{_HTML_STYLE}</head><body>"]
+    for para in doc.paragraphs:
+        if not para.text.strip():
+            parts.append("<br>")
+            continue
+        style = para.style.name if para.style else ""
+        if style.startswith("Heading"):
+            level = style.replace("Heading ", "").strip() or "2"
+            parts.append(f"<h{level}>{para.text}</h{level}>")
+        else:
+            parts.append(f"<p>{para.text}</p>")
+    parts.append("</body></html>")
+    return "".join(parts)
+
+
+def _mime_for_filename(filename: str) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return MIME_MAP.get(ext, "application/octet-stream")
+
+
+def _preview_response(file_path: Path, filename: str) -> FileResponse | HTMLResponse:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext in ("xlsx", "xls"):
+        return HTMLResponse(_xlsx_to_html(file_path))
+    if ext in ("docx", "doc"):
+        return HTMLResponse(_docx_to_html(file_path))
+    return FileResponse(path=str(file_path), media_type=_mime_for_filename(filename))
+
+
+@router.get("/{id}/preview")
+def preview_latest(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+) -> Any:
+    doc = session.get(Document, id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not current_user.is_superuser and doc.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    version = session.exec(
+        select(DocumentVersion)
+        .where(DocumentVersion.document_id == id)
+        .order_by(DocumentVersion.version_number.desc())  # type: ignore[attr-defined]
+        .limit(1)
+    ).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="No versions found")
+
+    file_path = Path(version.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    return _preview_response(file_path, version.original_filename)
+
+
+@router.get("/{id}/versions/{version_id}/preview")
+def preview_version(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> Any:
+    doc = session.get(Document, id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not current_user.is_superuser and doc.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    version = session.get(DocumentVersion, version_id)
+    if not version or version.document_id != id:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    file_path = Path(version.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    return _preview_response(file_path, version.original_filename)
+
+
 @router.get("/{id}/versions/{version_id}/download")
 def download_version(
     *,
@@ -257,3 +413,83 @@ def delete_document(
     session.delete(doc)
     session.commit()
     return Message(message="Document deleted successfully")
+
+
+# ---------- Tags ----------
+
+@router.get("/{id}/tags", response_model=list[TagPublic])
+def list_document_tags(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+) -> Any:
+    doc = session.get(Document, id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not current_user.is_superuser and doc.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    return doc.tags
+
+
+@router.post("/{id}/tags", response_model=TagPublic)
+def add_tag_to_document(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    name: str = Query(min_length=1, max_length=50),
+) -> Any:
+    doc = session.get(Document, id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not current_user.is_superuser and doc.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    tag = session.exec(
+        select(Tag).where(Tag.owner_id == current_user.id).where(col(Tag.name) == name)
+    ).first()
+    if not tag:
+        tag = Tag(name=name, owner_id=current_user.id)
+        session.add(tag)
+        session.flush()
+
+    already_linked = session.get(DocumentTag, (id, tag.id))
+    if not already_linked:
+        session.add(DocumentTag(document_id=id, tag_id=tag.id))
+    session.commit()
+    session.refresh(tag)
+    return tag
+
+
+@router.delete("/{id}/tags/{tag_id}", response_model=Message)
+def remove_tag_from_document(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    tag_id: uuid.UUID,
+) -> Any:
+    doc = session.get(Document, id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not current_user.is_superuser and doc.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    link = session.get(DocumentTag, (id, tag_id))
+    if not link:
+        raise HTTPException(status_code=404, detail="Tag not linked to document")
+    session.delete(link)
+    session.commit()
+    return Message(message="Tag removed")
+
+
+@router.get("/tags/all", response_model=list[TagPublic])
+def list_user_tags(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    return session.exec(
+        select(Tag).where(Tag.owner_id == current_user.id).order_by(col(Tag.name))
+    ).all()

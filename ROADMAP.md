@@ -11,15 +11,16 @@
 - [x] Prometheus metrics at `/metrics`
 - [x] DocVault branded UI (sidebar, login, dashboard)
 - [x] Docker Compose dev environment
+- [x] Sort + filter documents (by date, title, format, creator, tag, date range)
+- [x] Tags — add/remove tags per document, filter list by tag
+- [x] Document preview — PDF/image/text render inline in browser; unsupported formats show graceful fallback
 
 ---
 
 ## High Value — Build Next 🔥
 
 - [ ] **Content search** — extract text from PDF/DOCX on upload, index it in PostgreSQL tsvector so you can search inside documents, not just metadata
-- [ ] **Document preview** — render PDF/image inline in browser (no download needed to view)
 - [ ] **Duplicate detection** — block upload if SHA-256 already exists for that user; show which document is the duplicate
-- [ ] **Tags** — add multiple tags to documents, filter list by tag, search by tag
 
 ---
 

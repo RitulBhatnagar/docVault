@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { DocumentsReadDocumentsData, DocumentsReadDocumentsResponse, DocumentsSearchDocumentsData, DocumentsSearchDocumentsResponse, DocumentsGetDocumentData, DocumentsGetDocumentResponse, DocumentsListVersionsData, DocumentsListVersionsResponse, DocumentsDeleteDocumentData, DocumentsDeleteDocumentResponse } from './types.gen';
+import type { DocumentsReadDocumentsData, DocumentsReadDocumentsResponse, DocumentsSearchDocumentsData, DocumentsSearchDocumentsResponse, DocumentsGetDocumentData, DocumentsGetDocumentResponse, DocumentsListVersionsData, DocumentsListVersionsResponse, DocumentsDeleteDocumentData, DocumentsDeleteDocumentResponse, DocumentsListDocumentTagsData, DocumentsListDocumentTagsResponse, DocumentsAddTagToDocumentData, DocumentsAddTagToDocumentResponse, DocumentsRemoveTagFromDocumentData, DocumentsRemoveTagFromDocumentResponse, DocumentsListUserTagsResponse } from './types.gen';
 import type { ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class ItemsService {
@@ -473,7 +473,7 @@ export class DocumentsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/documents/',
-            query: { skip: data.skip, limit: data.limit },
+            query: { skip: data.skip, limit: data.limit, sort_by: data.sort_by, sort_order: data.sort_order, format: data.format, date_from: data.date_from, date_to: data.date_to, tag_id: data.tag_id },
             errors: { 422: 'Validation Error' }
         });
     }
@@ -510,6 +510,42 @@ export class DocumentsService {
             method: 'DELETE',
             url: '/api/v1/documents/{id}',
             path: { id: data.id },
+            errors: { 422: 'Validation Error' }
+        });
+    }
+
+    public static listDocumentTags(data: DocumentsListDocumentTagsData): CancelablePromise<DocumentsListDocumentTagsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/documents/{id}/tags',
+            path: { id: data.id },
+            errors: { 422: 'Validation Error' }
+        });
+    }
+
+    public static addTagToDocument(data: DocumentsAddTagToDocumentData): CancelablePromise<DocumentsAddTagToDocumentResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/documents/{id}/tags',
+            path: { id: data.id },
+            query: { name: data.name },
+            errors: { 422: 'Validation Error' }
+        });
+    }
+
+    public static removeTagFromDocument(data: DocumentsRemoveTagFromDocumentData): CancelablePromise<DocumentsRemoveTagFromDocumentResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/documents/{id}/tags/{tag_id}',
+            path: { id: data.id, tag_id: data.tag_id },
+            errors: { 422: 'Validation Error' }
+        });
+    }
+
+    public static listUserTags(): CancelablePromise<DocumentsListUserTagsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/documents/tags/all',
             errors: { 422: 'Validation Error' }
         });
     }
