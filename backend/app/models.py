@@ -130,6 +130,29 @@ class NewPassword(SQLModel):
 
 # ---------- DocVault ----------
 
+class DocumentTag(SQLModel, table=True):
+    document_id: uuid.UUID = Field(
+        foreign_key="document.id", primary_key=True, ondelete="CASCADE"
+    )
+    tag_id: uuid.UUID = Field(
+        foreign_key="tag.id", primary_key=True, ondelete="CASCADE"
+    )
+
+
+class Tag(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    name: str = Field(min_length=1, max_length=50, index=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    documents: list["Document"] = Relationship(
+        back_populates="tags", link_model=DocumentTag
+    )
+
+
+class TagPublic(SQLModel):
+    id: uuid.UUID
+    name: str
+
+
 class DocumentBase(SQLModel):
     title: str = Field(min_length=1, max_length=255)
     creator: str = Field(min_length=1, max_length=255)
@@ -151,6 +174,7 @@ class Document(DocumentBase, table=True):
     versions: list["DocumentVersion"] = Relationship(
         back_populates="document", cascade_delete=True
     )
+    tags: list[Tag] = Relationship(back_populates="documents", link_model=DocumentTag)
 
 
 class DocumentVersionBase(SQLModel):
@@ -183,6 +207,7 @@ class DocumentPublic(DocumentBase):
     id: uuid.UUID
     owner_id: uuid.UUID
     created_at: datetime | None = None
+    tags: list[TagPublic] = []
 
 
 class DocumentWithVersions(DocumentPublic):

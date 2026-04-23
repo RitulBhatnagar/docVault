@@ -239,6 +239,11 @@ export type UtilsTestEmailResponse = (Message);
 
 export type UtilsHealthCheckResponse = (boolean);
 
+export type TagPublic = {
+    id: string;
+    name: string;
+};
+
 export type DocumentPublic = {
     title: string;
     creator: string;
@@ -247,6 +252,7 @@ export type DocumentPublic = {
     id: string;
     owner_id: string;
     created_at?: string | null;
+    tags: Array<TagPublic>;
 };
 
 export type DocumentVersionPublic = {
@@ -271,7 +277,24 @@ export type DocumentsPublic = {
 export type DocumentsReadDocumentsData = {
     skip?: number;
     limit?: number;
+    sort_by?: 'created_at' | 'title' | 'format' | 'creator';
+    sort_order?: 'asc' | 'desc';
+    format?: string | null;
+    date_from?: string | null;
+    date_to?: string | null;
+    tag_id?: string | null;
 };
+
+export type DocumentsListDocumentTagsData = { id: string };
+export type DocumentsListDocumentTagsResponse = Array<TagPublic>;
+
+export type DocumentsAddTagToDocumentData = { id: string; name: string };
+export type DocumentsAddTagToDocumentResponse = TagPublic;
+
+export type DocumentsRemoveTagFromDocumentData = { id: string; tag_id: string };
+export type DocumentsRemoveTagFromDocumentResponse = Message;
+
+export type DocumentsListUserTagsResponse = Array<TagPublic>;
 export type DocumentsReadDocumentsResponse = DocumentsPublic;
 
 export type DocumentsSearchDocumentsData = {
