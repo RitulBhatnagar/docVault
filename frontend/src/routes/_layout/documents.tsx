@@ -1,12 +1,14 @@
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { ArrowDownUp, FileText, X } from "lucide-react"
+import { ArrowDownUp, FileText, LayoutGrid, List, Trash2, X } from "lucide-react"
 import { Suspense, useState } from "react"
 
 import { DocumentsService } from "@/client"
 import type { DocumentsReadDocumentsData, TagPublic } from "@/client"
 import { DataTable } from "@/components/Common/DataTable"
 import AddDocument from "@/components/Documents/AddDocument"
+import BulkUpload from "@/components/Documents/BulkUpload"
+import { DocumentCard } from "@/components/Documents/DocumentCard"
 import { columns } from "@/components/Documents/columns"
 import PendingItems from "@/components/Pending/PendingItems"
 import { Button } from "@/components/ui/button"
@@ -49,7 +51,19 @@ const defaultFilters: Filters = {
   tagId: "",
 }
 
-function DocumentsTableContent({ filters }: { filters: Filters }) {
+type ViewMode = "table" | "cards"
+
+interface SelectionProps {
+  rowSelection: Record<string, boolean>
+  onRowSelectionChange: (s: Record<string, boolean>) => void
+}
+
+function DocumentsTableContent({
+  filters,
+  view,
+  rowSelection,
+  onRowSelectionChange,
+}: { filters: Filters; view: ViewMode } & SelectionProps) {
   const isSearch = filters.search.trim().length > 0
 
   const query = isSearch
@@ -98,21 +112,65 @@ function DocumentsTableContent({ filters }: { filters: Filters }) {
     )
   }
 
-  return <DataTable columns={columns} data={docs.data} />
+  if (view === "cards") {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {docs.data.map((doc) => (
+          <DocumentCard key={doc.id} doc={doc} />
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <DataTable
+      columns={columns}
+      data={docs.data}
+      rowSelection={rowSelection}
+      onRowSelectionChange={onRowSelectionChange}
+      getRowId={(row) => row.id}
+    />
+  )
 }
 
-function DocumentsTable({ filters }: { filters: Filters }) {
+function DocumentsTable({
+  filters,
+  view,
+  rowSelection,
+  onRowSelectionChange,
+}: { filters: Filters; view: ViewMode } & SelectionProps) {
   return (
     <Suspense fallback={<PendingItems />}>
-      <DocumentsTableContent filters={filters} />
+      <DocumentsTableContent
+        filters={filters}
+        view={view}
+        rowSelection={rowSelection}
+        onRowSelectionChange={onRowSelectionChange}
+      />
     </Suspense>
   )
 }
 
 function Documents() {
   const [filters, setFilters] = useState<Filters>(defaultFilters)
+  const [view, setView] = useState<ViewMode>("table")
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
+  const queryClient = useQueryClient()
 
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }))
+
+  const selectedIds = Object.entries(rowSelection)
+    .filter(([, v]) => v)
+    .map(([k]) => k)
+
+  const bulkDelete = useMutation({
+    mutationFn: () =>
+      DocumentsService.bulkDeleteDocuments({ requestBody: { ids: selectedIds } }),
+    onSuccess: () => {
+      setRowSelection({})
+      queryClient.invalidateQueries({ queryKey: ["documents"] })
+    },
+  })
 
   const { data: userTags = [] } = useQuery({
     queryKey: ["user-tags"],
@@ -138,12 +196,35 @@ function Documents() {
             Upload, version, and search documents with integrity verification
           </p>
         </div>
-        <AddDocument />
+        <div className="flex items-center gap-2">
+          <div className="flex gap-0.5 border rounded-md p-0.5">
+            <Button
+              variant={view === "table" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setView("table")}
+              title="Table view"
+            >
+              <List className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant={view === "cards" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setView("cards")}
+              title="Card view"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <BulkUpload />
+          <AddDocument />
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3 items-end">
         <Input
-          placeholder="Search by title, creator, or subject…"
+          placeholder="Search title, creator, subject, or document content…"
           value={filters.search}
           onChange={(e) => set({ search: e.target.value })}
           className="max-w-sm"
@@ -227,7 +308,39 @@ function Documents() {
         )}
       </div>
 
-      <DocumentsTable filters={filters} />
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2.5">
+          <span className="text-sm font-medium">
+            {selectedIds.length} document{selectedIds.length !== 1 ? "s" : ""} selected
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRowSelection({})}
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Clear
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => bulkDelete.mutate()}
+              disabled={bulkDelete.isPending}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              {bulkDelete.isPending ? "Deleting…" : `Delete ${selectedIds.length}`}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <DocumentsTable
+        filters={filters}
+        view={view}
+        rowSelection={rowSelection}
+        onRowSelectionChange={setRowSelection}
+      />
     </div>
   )
 }

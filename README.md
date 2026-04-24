@@ -11,10 +11,19 @@ Upload a file → system saves it, calculates a SHA-256 fingerprint, stores meta
 | Feature | Description |
 |---------|-------------|
 | **File Upload** | Upload any file with metadata (title, creator, format, subject) |
+| **Bulk Upload** | Upload multiple files at once with per-file status tracking |
 | **SHA-256 Fingerprint** | Every version gets a cryptographic fingerprint for integrity verification |
 | **Version History** | Old versions are never deleted — upload new versions freely |
-| **Version Download** | Download any specific version of any document |
-| **Full-text Search** | PostgreSQL-powered search across title, creator, and subject |
+| **Smart Versioning** | Uploading a file with a matching name auto-adds it as a new version; format mismatches are blocked |
+| **Version Download** | Download any specific version, or latest via shortcut endpoint |
+| **Full-text Search** | PostgreSQL tsvector search inside PDF/DOCX content, not just metadata |
+| **Bulk Delete** | Select multiple documents and delete in one action |
+| **Document Preview** | Fullscreen in-browser preview: PDF, images, video (mp4/webm), audio (mp3/wav/flac), text, XLSX/DOCX rendered as HTML |
+| **Version Switcher** | Flip between document versions inside the preview dialog |
+| **Tags** | Add/remove tags per document, filter document list by tag |
+| **Sort & Filter** | Sort by date/title/format/creator; filter by format, date range, tag |
+| **Card / Table View** | Toggle between grid card view and table view |
+| **Format Icons** | Colored file-type icons (PDF=red, DOCX=blue, XLSX=green, images=purple, video=orange, audio=pink) |
 | **Auth** | JWT-based login, registration, and superuser roles |
 | **Prometheus Metrics** | Real-time API health and request metrics at `/metrics` |
 | **REST API** | Full OpenAPI/Swagger documentation at `/docs` |
@@ -95,13 +104,23 @@ All endpoints require `Authorization: Bearer <token>` header. Get a token at `PO
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/v1/documents/` | Upload document + metadata (multipart/form-data) |
-| `GET` | `/api/v1/documents/` | List all your documents |
-| `GET` | `/api/v1/documents/search?q=keyword` | Full-text search |
+| `GET` | `/api/v1/documents/` | List documents (sort, filter, paginate) |
+| `GET` | `/api/v1/documents/search?q=` | Full-text search inside content + metadata |
+| `GET` | `/api/v1/documents/check-title?title=` | Check if a document with that title already exists |
+| `GET` | `/api/v1/documents/stats` | Storage stats (document count, version count) |
 | `GET` | `/api/v1/documents/{id}` | Get document with all versions |
 | `DELETE` | `/api/v1/documents/{id}` | Delete document and all versions |
-| `POST` | `/api/v1/documents/{id}/versions` | Upload new version of existing document |
+| `GET` | `/api/v1/documents/{id}/download` | Download latest version |
+| `GET` | `/api/v1/documents/{id}/preview` | Preview latest version in browser |
+| `POST` | `/api/v1/documents/{id}/versions` | Upload new version (blocks format mismatch) |
 | `GET` | `/api/v1/documents/{id}/versions` | List all versions |
 | `GET` | `/api/v1/documents/{id}/versions/{vid}/download` | Download specific version |
+| `GET` | `/api/v1/documents/{id}/versions/{vid}/preview` | Preview specific version |
+| `DELETE` | `/api/v1/documents/bulk` | Delete multiple documents by ID array |
+| `GET` | `/api/v1/documents/{id}/tags` | List tags on a document |
+| `POST` | `/api/v1/documents/{id}/tags` | Add tag to document |
+| `DELETE` | `/api/v1/documents/{id}/tags/{tag_id}` | Remove tag from document |
+| `GET` | `/api/v1/documents/tags/all` | List all tags created by current user |
 
 ### Upload a document
 
@@ -193,9 +212,21 @@ docker compose exec backend alembic upgrade head
 
 ---
 
+## Changelog
+
+### Latest
+
+- **Bulk delete** — checkbox multi-select on table, delete bar shows count, single `DELETE /bulk` call
+- **Smart versioning** — single and bulk upload detect filename matches and route to version endpoint; format mismatches blocked at backend
+- **Preview upgrades** — fullscreen 92vw × 90vh dialog, version switcher pills, metadata strip (filename · size · date · SHA-256)
+- **Video & audio** — mp4/webm/mov preview via `<video>`; mp3/wav/flac/ogg via `<audio>` with waveform UI
+- **UI overhaul** — colored format icons, row hover actions (preview + download without opening menu), card/table view toggle, ID column removed
+
+---
+
 ## Roadmap
 
-See [ROADMAP.md](./ROADMAP.md) for planned features: content search, document preview, duplicate detection, tags, audit log, S3 storage, semantic search with pgvector.
+See [ROADMAP.md](./ROADMAP.md) for planned and completed features.
 
 ---
 

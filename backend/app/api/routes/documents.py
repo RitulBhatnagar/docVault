@@ -1,4 +1,5 @@
 import hashlib
+import io
 import uuid
 from datetime import date
 from pathlib import Path
@@ -6,11 +7,13 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from sqlalchemy import literal_column, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.models import (
+    BulkDeleteRequest,
     Document,
     DocumentPublic,
     DocumentTag,
@@ -19,6 +22,7 @@ from app.models import (
     DocumentWithVersions,
     DocumentsPublic,
     Message,
+    StorageStats,
     Tag,
     TagPublic,
 )
@@ -27,6 +31,63 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 UPLOAD_DIR = Path("/app/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+_MAX_TEXT_CHARS = 100_000
+_MAX_PDF_PAGES = 50
+_MAX_XLSX_ROWS = 200
+_MAX_EXTRACT_BYTES = 2 * 1024 * 1024  # skip extraction for files > 2 MB
+
+
+def _extract_text(content: bytes, filename: str) -> str | None:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if len(content) > _MAX_EXTRACT_BYTES and ext in ("xlsx", "xls"):
+        return None
+    text: str | None = None
+    try:
+        if ext == "pdf":
+            from pypdf import PdfReader  # noqa: PLC0415
+            reader = PdfReader(io.BytesIO(content))
+            pages = reader.pages[:_MAX_PDF_PAGES]
+            text = " ".join(page.extract_text() or "" for page in pages)
+        elif ext in ("docx", "doc"):
+            from docx import Document as DocxDocument  # noqa: PLC0415
+            doc = DocxDocument(io.BytesIO(content))
+            text = " ".join(p.text for p in doc.paragraphs if p.text.strip())
+        elif ext in ("txt", "md", "csv"):
+            text = content[:_MAX_TEXT_CHARS].decode("utf-8", errors="ignore")
+        elif ext in ("xlsx", "xls"):
+            import openpyxl  # noqa: PLC0415
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            parts: list[str] = []
+            for ws in wb.worksheets:
+                for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                    if row_idx >= _MAX_XLSX_ROWS:
+                        break
+                    parts.extend(str(v) for v in row if v is not None)
+            text = " ".join(parts)
+    except Exception:
+        return None
+    if not text:
+        return None
+    text = text.replace("\x00", "")
+    return text[:_MAX_TEXT_CHARS]
+
+
+def _check_duplicate(session: Any, owner_id: uuid.UUID, sha256: str) -> None:
+    dup = session.exec(
+        select(DocumentVersion)
+        .join(Document, DocumentVersion.document_id == Document.id)  # type: ignore[arg-type]
+        .where(Document.owner_id == owner_id)
+        .where(DocumentVersion.sha256 == sha256)
+    ).first()
+    if dup:
+        dup_doc = session.get(Document, dup.document_id)
+        title = dup_doc.title if dup_doc else "unknown"
+        raise HTTPException(
+            status_code=409,
+            detail=f'Duplicate: file already exists as "{title}"',
+        )
 
 
 @router.post("/", response_model=DocumentPublic)
@@ -42,6 +103,8 @@ async def upload_document(
 ) -> Any:
     content = await file.read()
     sha256 = hashlib.sha256(content).hexdigest()
+
+    _check_duplicate(session, current_user.id, sha256)
 
     doc = Document(
         title=title,
@@ -63,11 +126,37 @@ async def upload_document(
         file_path=str(file_path),
         original_filename=file.filename or "unknown",
         file_size=len(content),
+        content_text=_extract_text(content, file.filename or ""),
     )
     session.add(version)
     session.commit()
     session.refresh(doc)
     return doc
+
+
+@router.get("/stats", response_model=StorageStats)
+def get_storage_stats(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    owner_filter = (
+        [] if current_user.is_superuser else [Document.owner_id == current_user.id]
+    )
+    doc_count = session.exec(
+        select(func.count()).select_from(Document).where(*owner_filter)
+    ).one()
+    ver_stats = session.exec(
+        select(func.count(), func.coalesce(func.sum(DocumentVersion.file_size), 0))
+        .select_from(DocumentVersion)
+        .join(Document, DocumentVersion.document_id == Document.id)  # type: ignore[arg-type]
+        .where(*owner_filter)
+    ).one()
+    return StorageStats(
+        document_count=doc_count,
+        version_count=ver_stats[0],
+        total_size_bytes=ver_stats[1],
+    )
 
 
 @router.get("/search", response_model=DocumentsPublic)
@@ -79,29 +168,30 @@ def search_documents(
     skip: int = 0,
     limit: int = 100,
 ) -> Any:
-    search_col = func.concat(
-        func.coalesce(Document.title, ""),
-        " ",
-        func.coalesce(Document.creator, ""),
-        " ",
-        func.coalesce(Document.subject, ""),
+    tsquery = func.plainto_tsquery("english", q)
+
+    meta_match = literal_column("document.metadata_tsv").op("@@")(tsquery)
+
+    content_subq = (
+        select(DocumentVersion.document_id)
+        .where(literal_column("documentversion.content_tsv").op("@@")(tsquery))
+        .subquery()
     )
-    search_vector = func.to_tsvector("english", search_col)
-    search_query = func.plainto_tsquery("english", q)
-    ts_match = search_vector.op("@@")(search_query)
+
+    where_clause = or_(meta_match, Document.id.in_(content_subq))  # type: ignore[attr-defined]
 
     count_stmt = (
         select(func.count())
         .select_from(Document)
         .where(Document.owner_id == current_user.id)
-        .where(ts_match)
+        .where(where_clause)
     )
     count = session.exec(count_stmt).one()
 
     stmt = (
         select(Document)
         .where(Document.owner_id == current_user.id)
-        .where(ts_match)
+        .where(where_clause)
         .offset(skip)
         .limit(limit)
     )
@@ -160,6 +250,24 @@ def list_documents(
     return DocumentsPublic(data=list(docs), count=count)
 
 
+@router.get("/check-title", response_model=DocumentPublic | None)
+def check_document_title(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    title: str = Query(..., min_length=1),
+) -> Any:
+    doc = session.exec(
+        select(Document)
+        .options(selectinload(Document.tags))  # type: ignore[arg-type]
+        .where(
+            Document.owner_id == current_user.id,
+            func.lower(Document.title) == title.strip().lower(),
+        )
+    ).first()
+    return doc
+
+
 @router.get("/{id}", response_model=DocumentWithVersions)
 def get_document(
     *,
@@ -197,8 +305,17 @@ async def upload_new_version(
     if not current_user.is_superuser and doc.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
 
+    new_ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else ""
+    if new_ext and new_ext.lower() != doc.format.lower():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Format mismatch: document is '{doc.format}', uploaded file is '{new_ext}'",
+        )
+
     content = await file.read()
     sha256 = hashlib.sha256(content).hexdigest()
+
+    _check_duplicate(session, current_user.id, sha256)
 
     max_version = session.exec(
         select(func.max(DocumentVersion.version_number)).where(
@@ -217,6 +334,7 @@ async def upload_new_version(
         file_path=str(file_path),
         original_filename=file.filename or "unknown",
         file_size=len(content),
+        content_text=_extract_text(content, file.filename or ""),
     )
     session.add(version)
     session.commit()
@@ -244,16 +362,30 @@ def list_versions(
 
 
 MIME_MAP: dict[str, str] = {
-    "pdf": "application/pdf",
-    "png": "image/png",
-    "jpg": "image/jpeg",
+    "pdf":  "application/pdf",
+    "png":  "image/png",
+    "jpg":  "image/jpeg",
     "jpeg": "image/jpeg",
-    "gif": "image/gif",
+    "gif":  "image/gif",
     "webp": "image/webp",
-    "svg": "image/svg+xml",
-    "txt": "text/plain",
-    "md": "text/plain",
-    "csv": "text/plain",
+    "svg":  "image/svg+xml",
+    "txt":  "text/plain",
+    "md":   "text/plain",
+    "csv":  "text/plain",
+    # video
+    "mp4":  "video/mp4",
+    "webm": "video/webm",
+    "ogv":  "video/ogg",
+    "mov":  "video/quicktime",
+    "avi":  "video/x-msvideo",
+    "mkv":  "video/x-matroska",
+    # audio
+    "mp3":  "audio/mpeg",
+    "wav":  "audio/wav",
+    "ogg":  "audio/ogg",
+    "flac": "audio/flac",
+    "m4a":  "audio/mp4",
+    "aac":  "audio/aac",
 }
 
 _HTML_STYLE = (
@@ -369,6 +501,39 @@ def preview_version(
     return _preview_response(file_path, version.original_filename)
 
 
+@router.get("/{id}/download")
+def download_latest(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+) -> Any:
+    doc = session.get(Document, id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not current_user.is_superuser and doc.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    version = session.exec(
+        select(DocumentVersion)
+        .where(DocumentVersion.document_id == id)
+        .order_by(DocumentVersion.version_number.desc())  # type: ignore[attr-defined]
+        .limit(1)
+    ).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="No versions found")
+
+    file_path = Path(version.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=version.original_filename,
+        media_type="application/octet-stream",
+    )
+
+
 @router.get("/{id}/versions/{version_id}/download")
 def download_version(
     *,
@@ -396,6 +561,26 @@ def download_version(
         filename=version.original_filename,
         media_type="application/octet-stream",
     )
+
+
+@router.delete("/bulk", response_model=Message)
+def bulk_delete_documents(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    body: BulkDeleteRequest,
+) -> Any:
+    deleted = 0
+    for doc_id in body.ids:
+        doc = session.get(Document, doc_id)
+        if not doc:
+            continue
+        if not current_user.is_superuser and doc.owner_id != current_user.id:
+            continue
+        session.delete(doc)
+        deleted += 1
+    session.commit()
+    return Message(message=f"Deleted {deleted} document(s)")
 
 
 @router.delete("/{id}", response_model=Message)

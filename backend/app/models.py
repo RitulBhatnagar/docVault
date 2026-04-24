@@ -190,6 +190,7 @@ class DocumentVersion(DocumentVersionBase, table=True):
         foreign_key="document.id", nullable=False, ondelete="CASCADE"
     )
     file_path: str = Field(max_length=500)
+    content_text: str | None = Field(default=None)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -217,3 +218,13 @@ class DocumentWithVersions(DocumentPublic):
 class DocumentsPublic(SQLModel):
     data: list[DocumentPublic]
     count: int
+
+
+class StorageStats(SQLModel):
+    document_count: int
+    version_count: int
+    total_size_bytes: int
+
+
+class BulkDeleteRequest(SQLModel):
+    ids: list[uuid.UUID]

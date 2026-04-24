@@ -549,4 +549,14 @@ export class DocumentsService {
             errors: { 422: 'Validation Error' }
         });
     }
+
+    public static bulkDeleteDocuments(data: { requestBody: { ids: string[] } }): CancelablePromise<{ message: string }> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/documents/bulk',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: { 422: 'Validation Error' }
+        });
+    }
 }

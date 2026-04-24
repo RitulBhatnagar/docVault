@@ -32,17 +32,32 @@ import {
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data: TData[]
+  rowSelection?: Record<string, boolean>
+  onRowSelectionChange?: (selection: Record<string, boolean>) => void
+  getRowId?: (row: TData) => string
 }
 
 export function DataTable<TData, TValue>({
   columns,
   data,
+  rowSelection,
+  onRowSelectionChange,
+  getRowId,
 }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    ...(rowSelection !== undefined && {
+      state: { rowSelection },
+      onRowSelectionChange: (updater) => {
+        const next = typeof updater === "function" ? updater(rowSelection!) : updater
+        onRowSelectionChange?.(next)
+      },
+      enableRowSelection: true,
+    }),
+    ...(getRowId && { getRowId }),
   })
 
   return (
@@ -69,7 +84,7 @@ export function DataTable<TData, TValue>({
         <TableBody>
           {table.getRowModel().rows.length ? (
             table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id}>
+              <TableRow key={row.id} className="group">
                 {row.getVisibleCells().map((cell) => (
                   <TableCell key={cell.id}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
