@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
 import { ArrowDownUp, FileText, LayoutGrid, List, Trash2, X } from "lucide-react"
-import { Suspense, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
+import { toast } from "sonner"
 
 import { DocumentsService } from "@/client"
 import type { DocumentsReadDocumentsData, TagPublic } from "@/client"
 import { DataTable } from "@/components/Common/DataTable"
 import AddDocument from "@/components/Documents/AddDocument"
 import BulkUpload from "@/components/Documents/BulkUpload"
+import DriveImportModal from "@/components/Documents/DriveImportModal"
 import { DocumentCard } from "@/components/Documents/DocumentCard"
 import { columns } from "@/components/Documents/columns"
 import PendingItems from "@/components/Pending/PendingItems"
@@ -157,6 +159,16 @@ function Documents() {
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
   const queryClient = useQueryClient()
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("drive") === "connected") {
+      toast.success("Google Drive connected!", { description: "You can now import files from your Drive." })
+      const url = new URL(window.location.href)
+      url.searchParams.delete("drive")
+      window.history.replaceState({}, "", url.toString())
+    }
+  }, [])
+
   const set = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }))
 
   const selectedIds = Object.entries(rowSelection)
@@ -217,6 +229,7 @@ function Documents() {
               <LayoutGrid className="h-3.5 w-3.5" />
             </Button>
           </div>
+          <DriveImportModal />
           <BulkUpload />
           <AddDocument />
         </div>

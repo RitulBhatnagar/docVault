@@ -318,3 +318,45 @@ export type DocumentsDeleteDocumentData = {
     id: string;
 };
 export type DocumentsDeleteDocumentResponse = Message;
+
+// ---------- Google Drive ----------
+
+export type DriveConnectionPublic = {
+    connected: boolean;
+    connected_at?: (string | null);
+};
+
+export type DriveFolderItem = {
+    id: string;
+    name: string;
+};
+
+export type DriveImportJobPublic = {
+    id: string;
+    folder_id: string;
+    folder_name: string;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    total_files: number;
+    imported_files: number;
+    skipped_files: number;
+    failed_files: number;
+    error_message: string | null;
+    created_at: string;
+    completed_at: string | null;
+};
+
+export type DriveImportRequest = {
+    folder_id: string;
+    folder_name: string;
+};
+
+export type DriveGetStatusResponse = DriveConnectionPublic;
+export type DriveGetFoldersResponse = Array<DriveFolderItem>;
+export type DriveGetAuthUrlResponse = { url: string };
+export type DriveDisconnectResponse = Message;
+
+export type DriveStartImportData = { requestBody: DriveImportRequest };
+export type DriveStartImportResponse = DriveImportJobPublic;
+
+export type DriveGetImportStatusData = { jobId: string };
+export type DriveGetImportStatusResponse = DriveImportJobPublic;

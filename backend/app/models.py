@@ -228,3 +228,67 @@ class StorageStats(SQLModel):
 
 class BulkDeleteRequest(SQLModel):
     ids: list[uuid.UUID]
+
+
+# ---------- Google Drive Integration ----------
+
+class DriveConnection(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE", unique=True)
+    access_token: str = Field(max_length=4096)   # Fernet-encrypted
+    refresh_token: str = Field(max_length=4096)  # Fernet-encrypted
+    token_expiry: datetime = Field(sa_type=DateTime(timezone=True))  # type: ignore
+    connected_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class DriveConnectionPublic(SQLModel):
+    connected: bool
+    connected_at: datetime | None = None
+
+
+class DriveImportJob(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    folder_id: str = Field(max_length=255)
+    folder_name: str = Field(max_length=500)
+    status: str = Field(default="pending", max_length=20)  # pending|running|completed|failed
+    total_files: int = Field(default=0)
+    imported_files: int = Field(default=0)
+    skipped_files: int = Field(default=0)
+    failed_files: int = Field(default=0)
+    error_message: str | None = Field(default=None, max_length=2000)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class DriveImportJobPublic(SQLModel):
+    id: uuid.UUID
+    folder_id: str
+    folder_name: str
+    status: str
+    total_files: int
+    imported_files: int
+    skipped_files: int
+    failed_files: int
+    error_message: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class DriveImportRequest(SQLModel):
+    folder_id: str
+    folder_name: str
+
+
+class DriveFolderItem(SQLModel):
+    id: str
+    name: str

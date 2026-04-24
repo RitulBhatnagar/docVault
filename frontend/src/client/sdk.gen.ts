@@ -560,3 +560,60 @@ export class DocumentsService {
         });
     }
 }
+
+import type {
+    DriveGetAuthUrlResponse,
+    DriveGetStatusResponse,
+    DriveDisconnectResponse,
+    DriveGetFoldersResponse,
+    DriveStartImportData,
+    DriveStartImportResponse,
+    DriveGetImportStatusData,
+    DriveGetImportStatusResponse,
+} from './types.gen';
+
+export class DriveService {
+    public static getAuthUrl(): CancelablePromise<DriveGetAuthUrlResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/drive/auth-url',
+        });
+    }
+
+    public static getStatus(): CancelablePromise<DriveGetStatusResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/drive/status',
+        });
+    }
+
+    public static disconnect(): CancelablePromise<DriveDisconnectResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/drive/disconnect',
+        });
+    }
+
+    public static getFolders(): CancelablePromise<DriveGetFoldersResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/drive/folders',
+        });
+    }
+
+    public static startImport(data: DriveStartImportData): CancelablePromise<DriveStartImportResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/drive/import',
+            body: data.requestBody,
+            mediaType: 'application/json',
+        });
+    }
+
+    public static getImportStatus(data: DriveGetImportStatusData): CancelablePromise<DriveGetImportStatusResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: `/api/v1/drive/import/${data.jobId}`,
+        });
+    }
+}
