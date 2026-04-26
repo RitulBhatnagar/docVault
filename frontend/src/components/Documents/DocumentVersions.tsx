@@ -4,6 +4,7 @@ import { Suspense, useRef, useState } from "react"
 
 import { DocumentsService, type DocumentPublic } from "@/client"
 import { Button } from "@/components/ui/button"
+import { OcrStatusBadge } from "./OcrStatusBadge"
 import { VersionPreviewButton } from "./PreviewDocument"
 import {
   Dialog,
@@ -71,6 +72,7 @@ function VersionsList({ document: doc }: { document: DocumentPublic }) {
                 v{v.version_number}
               </span>
               <span className="text-sm font-medium truncate max-w-[180px]">{v.original_filename}</span>
+              <OcrStatusBadge status={v.ocr_status} />
             </div>
             <span className="text-xs text-muted-foreground font-mono">{v.sha256.slice(0, 16)}…</span>
             <span className="text-xs text-muted-foreground">{formatBytes(v.file_size)}</span>

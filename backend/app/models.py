@@ -191,6 +191,7 @@ class DocumentVersion(DocumentVersionBase, table=True):
     )
     file_path: str = Field(max_length=500)
     content_text: str | None = Field(default=None)
+    ocr_status: str | None = Field(default=None, max_length=20)
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -201,6 +202,7 @@ class DocumentVersion(DocumentVersionBase, table=True):
 class DocumentVersionPublic(DocumentVersionBase):
     id: uuid.UUID
     document_id: uuid.UUID
+    ocr_status: str | None = None
     created_at: datetime | None = None
 
 
@@ -228,6 +230,19 @@ class StorageStats(SQLModel):
 
 class BulkDeleteRequest(SQLModel):
     ids: list[uuid.UUID]
+
+
+class DocumentGroup(SQLModel):
+    key: str
+    label: str
+    kind: str
+    count: int
+    docs: list["DocumentPublic"]
+
+
+class DocumentGroupsPublic(SQLModel):
+    groups: list[DocumentGroup]
+    total: int
 
 
 # ---------- Google Drive Integration ----------

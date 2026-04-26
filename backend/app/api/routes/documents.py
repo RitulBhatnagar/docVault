@@ -5,16 +5,19 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy import literal_column, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
+from app.core.config import settings
 from app.models import (
     BulkDeleteRequest,
     Document,
+    DocumentGroup,
+    DocumentGroupsPublic,
     DocumentPublic,
     DocumentTag,
     DocumentVersion,
@@ -93,6 +96,7 @@ def _check_duplicate(session: Any, owner_id: uuid.UUID, sha256: str) -> None:
 @router.post("/", response_model=DocumentPublic)
 async def upload_document(
     *,
+    background_tasks: BackgroundTasks,
     session: SessionDep,
     current_user: CurrentUser,
     title: str = Form(...),
@@ -101,6 +105,8 @@ async def upload_document(
     subject: str | None = Form(default=None),
     file: UploadFile,
 ) -> Any:
+    from app.services.ocr import needs_ocr, run_ocr_for_version  # noqa: PLC0415
+
     content = await file.read()
     sha256 = hashlib.sha256(content).hexdigest()
 
@@ -119,18 +125,31 @@ async def upload_document(
     file_path = UPLOAD_DIR / f"{doc.id}_v1_{file.filename}"
     file_path.write_bytes(content)
 
+    filename = file.filename or "unknown"
+    content_text = _extract_text(content, filename)
+    ocr_needed = needs_ocr(content_text, filename)
+
     version = DocumentVersion(
         document_id=doc.id,
         version_number=1,
         sha256=sha256,
         file_path=str(file_path),
-        original_filename=file.filename or "unknown",
+        original_filename=filename,
         file_size=len(content),
-        content_text=_extract_text(content, file.filename or ""),
+        content_text=content_text,
+        ocr_status="pending" if ocr_needed else None,
     )
     session.add(version)
     session.commit()
     session.refresh(doc)
+
+    if ocr_needed:
+        background_tasks.add_task(
+            run_ocr_for_version,
+            version.id,
+            str(settings.SQLALCHEMY_DATABASE_URI),
+        )
+
     return doc
 
 
@@ -268,6 +287,75 @@ def check_document_title(
     return doc
 
 
+@router.get("/groups", response_model=DocumentGroupsPublic)
+def get_document_groups(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    from app.services.grouping import derive_cluster_key  # noqa: PLC0415
+
+    docs = session.exec(
+        select(Document)
+        .options(selectinload(Document.tags))  # type: ignore[arg-type]
+        .where(Document.owner_id == current_user.id)
+        .order_by(Document.created_at.desc())
+    ).all()
+
+    doc_ids = [d.id for d in docs]
+
+    if doc_ids:
+        max_ver_subq = (
+            select(
+                DocumentVersion.document_id,
+                func.max(DocumentVersion.version_number).label("max_ver"),
+            )
+            .where(col(DocumentVersion.document_id).in_(doc_ids))
+            .group_by(DocumentVersion.document_id)
+            .subquery()
+        )
+        latest_versions = session.exec(
+            select(DocumentVersion).join(
+                max_ver_subq,
+                (DocumentVersion.document_id == max_ver_subq.c.document_id)
+                & (DocumentVersion.version_number == max_ver_subq.c.max_ver),
+            )
+        ).all()
+        latest_ver_map: dict = {v.document_id: v for v in latest_versions}
+    else:
+        latest_ver_map = {}
+
+    groups_map: dict[str, dict] = {}
+    for doc in docs:
+        latest_ver = latest_ver_map.get(doc.id)
+        key, label, kind = derive_cluster_key(doc, latest_ver)
+        if key not in groups_map:
+            groups_map[key] = {"key": key, "label": label, "kind": kind, "docs": []}
+        groups_map[key]["docs"].append(doc)
+
+    groups: list[DocumentGroup] = []
+    other_group: DocumentGroup | None = None
+
+    for g in groups_map.values():
+        group = DocumentGroup(
+            key=g["key"],
+            label=g["label"],
+            kind=g["kind"],
+            count=len(g["docs"]),
+            docs=g["docs"],
+        )
+        if g["key"] == "other":
+            other_group = group
+        else:
+            groups.append(group)
+
+    groups.sort(key=lambda x: x.count, reverse=True)
+    if other_group:
+        groups.append(other_group)
+
+    return DocumentGroupsPublic(groups=groups, total=len(docs))
+
+
 @router.get("/{id}", response_model=DocumentWithVersions)
 def get_document(
     *,
@@ -294,11 +382,14 @@ def get_document(
 @router.post("/{id}/versions", response_model=DocumentVersionPublic)
 async def upload_new_version(
     *,
+    background_tasks: BackgroundTasks,
     session: SessionDep,
     current_user: CurrentUser,
     id: uuid.UUID,
     file: UploadFile,
 ) -> Any:
+    from app.services.ocr import needs_ocr, run_ocr_for_version  # noqa: PLC0415
+
     doc = session.get(Document, id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -327,18 +418,31 @@ async def upload_new_version(
     file_path = UPLOAD_DIR / f"{id}_v{next_version}_{file.filename}"
     file_path.write_bytes(content)
 
+    filename = file.filename or "unknown"
+    content_text = _extract_text(content, filename)
+    ocr_needed = needs_ocr(content_text, filename)
+
     version = DocumentVersion(
         document_id=id,
         version_number=next_version,
         sha256=sha256,
         file_path=str(file_path),
-        original_filename=file.filename or "unknown",
+        original_filename=filename,
         file_size=len(content),
-        content_text=_extract_text(content, file.filename or ""),
+        content_text=content_text,
+        ocr_status="pending" if ocr_needed else None,
     )
     session.add(version)
     session.commit()
     session.refresh(version)
+
+    if ocr_needed:
+        background_tasks.add_task(
+            run_ocr_for_version,
+            version.id,
+            str(settings.SQLALCHEMY_DATABASE_URI),
+        )
+
     return version
 
 
@@ -678,3 +782,79 @@ def list_user_tags(
     return session.exec(
         select(Tag).where(Tag.owner_id == current_user.id).order_by(col(Tag.name))
     ).all()
+
+
+# ---------- OCR Backfill (superuser only) ----------
+
+class OcrBackfillQueued(Message):
+    queued: int
+
+
+class OcrBackfillStatus(Message):
+    total_pdf_versions: int
+    pending: int
+    processing: int
+    done: int
+    failed: int
+    not_applicable: int
+
+
+@router.post("/ocr/backfill", response_model=OcrBackfillQueued)
+def ocr_backfill(
+    *,
+    background_tasks: BackgroundTasks,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    from app.services.ocr import run_ocr_backfill  # noqa: PLC0415
+
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Superuser only")
+
+    candidates = session.exec(
+        select(DocumentVersion).where(
+            DocumentVersion.ocr_status.is_(None),  # type: ignore[union-attr]
+            col(DocumentVersion.original_filename).ilike("%.pdf"),
+            DocumentVersion.content_text.is_(None),  # type: ignore[union-attr]
+        )
+    ).all()
+
+    for v in candidates:
+        v.ocr_status = "pending"
+        session.add(v)
+    session.commit()
+
+    background_tasks.add_task(run_ocr_backfill, str(settings.SQLALCHEMY_DATABASE_URI))
+
+    return OcrBackfillQueued(message="OCR backfill started", queued=len(candidates))
+
+
+@router.get("/ocr/backfill/status", response_model=OcrBackfillStatus)
+def ocr_backfill_status(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Superuser only")
+
+    pdf_versions = session.exec(
+        select(DocumentVersion).where(
+            col(DocumentVersion.original_filename).ilike("%.pdf")
+        )
+    ).all()
+
+    counts: dict[str, int] = {"pending": 0, "processing": 0, "done": 0, "failed": 0, "none": 0}
+    for v in pdf_versions:
+        key = v.ocr_status if v.ocr_status in counts else "none"
+        counts[key] += 1
+
+    return OcrBackfillStatus(
+        message="ok",
+        total_pdf_versions=len(pdf_versions),
+        pending=counts["pending"],
+        processing=counts["processing"],
+        done=counts["done"],
+        failed=counts["failed"],
+        not_applicable=counts["none"],
+    )

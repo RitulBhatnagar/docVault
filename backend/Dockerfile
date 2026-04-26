@@ -2,6 +2,12 @@ FROM python:3.10
 
 ENV PYTHONUNBUFFERED=1
 
+# System deps for OCR (tesseract) and PDF rendering (poppler)
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install uv
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#installing-uv
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/

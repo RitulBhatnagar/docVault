@@ -1,7 +1,10 @@
+import { useQuery } from "@tanstack/react-query"
 import type { DocumentPublic } from "@/client"
+import { DocumentsService } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { DocumentActionsMenu } from "./DocumentActionsMenu"
 import { FormatIcon } from "./FormatIcon"
+import { OcrStatusBadge } from "./OcrStatusBadge"
 import { DownloadIconButton, PreviewIconButton } from "./PreviewDocument"
 
 function formatDate(iso: string | null | undefined) {
@@ -13,8 +16,30 @@ function formatDate(iso: string | null | undefined) {
   })
 }
 
+function useLatestOcrStatus(doc: DocumentPublic) {
+  const isPdf = doc.format.toLowerCase() === "pdf"
+  const { data } = useQuery({
+    queryKey: ["documents", doc.id, "detail"],
+    queryFn: () => DocumentsService.getDocument({ id: doc.id }),
+    enabled: isPdf,
+    staleTime: 30_000,
+    refetchInterval: (query) => {
+      const versions = query.state.data?.versions
+      if (!versions?.length) return false
+      const latest = versions[versions.length - 1]
+      return latest.ocr_status === "pending" || latest.ocr_status === "processing"
+        ? 5_000
+        : false
+    },
+  })
+
+  if (!isPdf || !data?.versions?.length) return null
+  return data.versions[data.versions.length - 1].ocr_status ?? null
+}
+
 export function DocumentCard({ doc }: { doc: DocumentPublic }) {
   const tags = doc.tags ?? []
+  const ocrStatus = useLatestOcrStatus(doc)
 
   return (
     <div className="group relative rounded-lg border bg-card hover:shadow-md transition-shadow flex flex-col gap-3 p-4">
@@ -50,6 +75,8 @@ export function DocumentCard({ doc }: { doc: DocumentPublic }) {
           )}
         </div>
       )}
+
+      {ocrStatus && <OcrStatusBadge status={ocrStatus} />}
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-2 border-t mt-auto">

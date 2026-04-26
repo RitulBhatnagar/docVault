@@ -47,7 +47,7 @@
 - [ ] **Virus scanning** — ClamAV scan every file before saving; reject infected uploads
 - [ ] **Storage quotas** — per-user upload limit (total MB); superuser can configure per user
 - [x] **Bulk upload** — upload multiple files in one request, zip extraction
-- [ ] **OCR** — extract text from scanned image PDFs using Tesseract
+- [x] **OCR** — extract text from scanned image PDFs using Tesseract; auto-detects scanned vs text-layer PDFs; runs in background via FastAPI BackgroundTasks; `ocr_status` field tracks pipeline state (pending → processing → done/failed); backfill endpoint for existing docs; OCR status badge in card view with auto-polling
 
 ---
 

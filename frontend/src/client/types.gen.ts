@@ -262,6 +262,7 @@ export type DocumentVersionPublic = {
     file_size: number;
     id: string;
     document_id: string;
+    ocr_status?: string | null;
     created_at?: string | null;
 };
 
@@ -318,6 +319,21 @@ export type DocumentsDeleteDocumentData = {
     id: string;
 };
 export type DocumentsDeleteDocumentResponse = Message;
+
+export type DocumentGroup = {
+    key: string;
+    label: string;
+    kind: 'format' | 'keyword' | 'prefix' | 'candidate' | 'other';
+    count: number;
+    docs: Array<DocumentPublic>;
+};
+
+export type DocumentGroupsPublic = {
+    groups: Array<DocumentGroup>;
+    total: number;
+};
+
+export type DocumentsGetGroupsResponse = DocumentGroupsPublic;
 
 // ---------- Google Drive ----------
 
