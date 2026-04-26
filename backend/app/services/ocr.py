@@ -71,18 +71,33 @@ def run_ocr_backfill(db_url: str) -> None:
 
 
 def _ocr_pdf(file_path: str, dpi: int) -> str | None:
+    import tempfile
     import pytesseract
     from pdf2image import convert_from_path
+    from app.services.storage import is_r2_key, get_file_bytes  # noqa: PLC0415
 
-    path = Path(file_path)
+    if is_r2_key(file_path):
+        data = get_file_bytes(file_path)
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        path = Path(tmp_path)
+        cleanup = True
+    else:
+        path = Path(file_path)
+        cleanup = False
+
     if not path.exists():
         return None
 
-    images = convert_from_path(str(path), dpi=dpi, last_page=MAX_OCR_PAGES)
-    pages_text: list[str] = []
-    for img in images:
-        text = pytesseract.image_to_string(img, lang="eng")
-        if text.strip():
-            pages_text.append(text.strip())
-
-    return " ".join(pages_text) if pages_text else None
+    try:
+        images = convert_from_path(str(path), dpi=dpi, last_page=MAX_OCR_PAGES)
+        pages_text: list[str] = []
+        for img in images:
+            text = pytesseract.image_to_string(img, lang="eng")
+            if text.strip():
+                pages_text.append(text.strip())
+        return " ".join(pages_text) if pages_text else None
+    finally:
+        if cleanup:
+            path.unlink(missing_ok=True)

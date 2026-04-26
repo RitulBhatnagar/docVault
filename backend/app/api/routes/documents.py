@@ -13,6 +13,7 @@ from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.core.config import settings
+from app.services import storage as storage_svc
 from app.models import (
     BulkDeleteRequest,
     Document,
@@ -122,10 +123,16 @@ async def upload_document(
     session.add(doc)
     session.flush()
 
-    file_path = UPLOAD_DIR / f"{doc.id}_v1_{file.filename}"
-    file_path.write_bytes(content)
-
     filename = file.filename or "unknown"
+    object_key = f"{doc.id}_v1_{filename}"
+    if settings.r2_enabled:
+        storage_svc.upload_bytes(object_key, content, _mime_for_filename(filename))
+        stored_path = storage_svc.make_r2_path(object_key)
+    else:
+        file_path = UPLOAD_DIR / object_key
+        file_path.write_bytes(content)
+        stored_path = str(file_path)
+
     content_text = _extract_text(content, filename)
     ocr_needed = needs_ocr(content_text, filename)
 
@@ -133,7 +140,7 @@ async def upload_document(
         document_id=doc.id,
         version_number=1,
         sha256=sha256,
-        file_path=str(file_path),
+        file_path=stored_path,
         original_filename=filename,
         file_size=len(content),
         content_text=content_text,
@@ -415,10 +422,16 @@ async def upload_new_version(
     ).one()
     next_version = (max_version or 0) + 1
 
-    file_path = UPLOAD_DIR / f"{id}_v{next_version}_{file.filename}"
-    file_path.write_bytes(content)
-
     filename = file.filename or "unknown"
+    object_key = f"{id}_v{next_version}_{filename}"
+    if settings.r2_enabled:
+        storage_svc.upload_bytes(object_key, content, _mime_for_filename(filename))
+        stored_path = storage_svc.make_r2_path(object_key)
+    else:
+        file_path = UPLOAD_DIR / object_key
+        file_path.write_bytes(content)
+        stored_path = str(file_path)
+
     content_text = _extract_text(content, filename)
     ocr_needed = needs_ocr(content_text, filename)
 
@@ -426,7 +439,7 @@ async def upload_new_version(
         document_id=id,
         version_number=next_version,
         sha256=sha256,
-        file_path=str(file_path),
+        file_path=stored_path,
         original_filename=filename,
         file_size=len(content),
         content_text=content_text,
@@ -503,7 +516,7 @@ _HTML_STYLE = (
 )
 
 
-def _xlsx_to_html(path: Path) -> str:
+def _xlsx_to_html(path: Any) -> str:
     import openpyxl  # noqa: PLC0415
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     parts = [f"<html><head>{_HTML_STYLE}</head><body>"]
@@ -519,9 +532,9 @@ def _xlsx_to_html(path: Path) -> str:
     return "".join(parts)
 
 
-def _docx_to_html(path: Path) -> str:
+def _docx_to_html(path: Any) -> str:
     from docx import Document as DocxDocument  # noqa: PLC0415
-    doc = DocxDocument(str(path))
+    doc = DocxDocument(path)
     parts = [f"<html><head>{_HTML_STYLE}</head><body>"]
     for para in doc.paragraphs:
         if not para.text.strip():
@@ -542,8 +555,17 @@ def _mime_for_filename(filename: str) -> str:
     return MIME_MAP.get(ext, "application/octet-stream")
 
 
-def _preview_response(file_path: Path, filename: str) -> FileResponse | HTMLResponse:
+def _preview_response(stored_path: str, filename: str) -> Any:
+    from fastapi.responses import StreamingResponse  # noqa: PLC0415
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if storage_svc.is_r2_key(stored_path):
+        data = storage_svc.get_file_bytes(stored_path)
+        if ext in ("xlsx", "xls"):
+            return HTMLResponse(_xlsx_to_html(io.BytesIO(data)))  # type: ignore[arg-type]
+        if ext in ("docx", "doc"):
+            return HTMLResponse(_docx_to_html(io.BytesIO(data)))  # type: ignore[arg-type]
+        return StreamingResponse(io.BytesIO(data), media_type=_mime_for_filename(filename))
+    file_path = Path(stored_path)
     if ext in ("xlsx", "xls"):
         return HTMLResponse(_xlsx_to_html(file_path))
     if ext in ("docx", "doc"):
@@ -631,6 +653,11 @@ def download_latest(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
 
+    if storage_svc.is_r2_key(version.file_path):
+        from fastapi.responses import StreamingResponse  # noqa: PLC0415
+        data = storage_svc.get_file_bytes(version.file_path)
+        headers = {"Content-Disposition": f'attachment; filename="{version.original_filename}"'}
+        return StreamingResponse(io.BytesIO(data), media_type="application/octet-stream", headers=headers)
     return FileResponse(
         path=str(file_path),
         filename=version.original_filename,
@@ -660,6 +687,11 @@ def download_version(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
 
+    if storage_svc.is_r2_key(version.file_path):
+        from fastapi.responses import StreamingResponse  # noqa: PLC0415
+        data = storage_svc.get_file_bytes(version.file_path)
+        headers = {"Content-Disposition": f'attachment; filename="{version.original_filename}"'}
+        return StreamingResponse(io.BytesIO(data), media_type="application/octet-stream", headers=headers)
     return FileResponse(
         path=str(file_path),
         filename=version.original_filename,
@@ -681,6 +713,9 @@ def bulk_delete_documents(
             continue
         if not current_user.is_superuser and doc.owner_id != current_user.id:
             continue
+        versions = session.exec(select(DocumentVersion).where(DocumentVersion.document_id == doc_id)).all()
+        for v in versions:
+            storage_svc.delete_file(v.file_path)
         session.delete(doc)
         deleted += 1
     session.commit()
@@ -699,6 +734,9 @@ def delete_document(
         raise HTTPException(status_code=404, detail="Document not found")
     if not current_user.is_superuser and doc.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
+    versions = session.exec(select(DocumentVersion).where(DocumentVersion.document_id == id)).all()
+    for v in versions:
+        storage_svc.delete_file(v.file_path)
     session.delete(doc)
     session.commit()
     return Message(message="Document deleted successfully")

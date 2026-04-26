@@ -94,6 +94,24 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
+    # Cloudflare R2 storage (optional — falls back to local disk if unset)
+    R2_ACCOUNT_ID: str | None = None
+    R2_ACCESS_KEY_ID: str | None = None
+    R2_SECRET_ACCESS_KEY: str | None = None
+    R2_BUCKET_NAME: str = "docvault"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def R2_ENDPOINT_URL(self) -> str | None:
+        if not self.R2_ACCOUNT_ID:
+            return None
+        return f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def r2_enabled(self) -> bool:
+        return bool(self.R2_ACCOUNT_ID and self.R2_ACCESS_KEY_ID and self.R2_SECRET_ACCESS_KEY)
+
     # Google Drive integration (optional — feature disabled if unset)
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
