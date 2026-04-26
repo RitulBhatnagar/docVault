@@ -215,6 +215,36 @@ def _link_tag(session: Session, document_id: uuid.UUID, tag_id: uuid.UUID) -> No
 # ---------- Import orchestration ----------
 
 
+_DOWNLOAD_WORKERS = 6
+
+
+def _download_batch(
+    creds: Credentials, files: list[dict[str, Any]]
+) -> list[tuple[dict[str, Any], bytes | None, str | None]]:
+    """Download all files in parallel. Returns (file_meta, content, error) tuples."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: PLC0415
+
+    results: list[tuple[dict[str, Any], bytes | None, str | None]] = [
+        (f, None, None) for f in files
+    ]
+    index_map = {f["id"]: i for i, f in enumerate(files)}
+
+    def _dl(f: dict[str, Any]) -> tuple[str, bytes | None, str | None]:
+        try:
+            return f["id"], download_file(creds, f["id"]), None
+        except Exception as exc:
+            return f["id"], None, str(exc)
+
+    with ThreadPoolExecutor(max_workers=_DOWNLOAD_WORKERS) as pool:
+        futures = {pool.submit(_dl, f): f for f in files}
+        for future in as_completed(futures):
+            file_id, content, err = future.result()
+            idx = index_map[file_id]
+            results[idx] = (files[idx], content, err)
+
+    return results
+
+
 def run_import_job(job_id: uuid.UUID) -> None:
     """Background task — runs after HTTP response is sent."""
     with Session(engine) as session:
@@ -246,11 +276,18 @@ def run_import_job(job_id: uuid.UUID) -> None:
             drive_tag = _ensure_tag(session, job.user_id, "from-drive")
             session.commit()
 
-            for f in files:
-                file_id: str = f["id"]
-                filename: str = f["name"]
+            # Phase 1: download all files in parallel
+            downloaded = _download_batch(creds, files)
+
+            # Phase 2: process sequentially (session not thread-safe)
+            for file_meta, content, download_err in downloaded:
+                filename: str = file_meta["name"]
                 try:
-                    content = download_file(creds, file_id)
+                    if download_err or content is None:
+                        job.failed_files += 1
+                        session.add(job)
+                        session.commit()
+                        continue
                     sha256 = hashlib.sha256(content).hexdigest()
 
                     # Duplicate check — skip if this user already has this exact file

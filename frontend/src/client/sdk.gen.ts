@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { DocumentsReadDocumentsData, DocumentsReadDocumentsResponse, DocumentsSearchDocumentsData, DocumentsSearchDocumentsResponse, DocumentsGetDocumentData, DocumentsGetDocumentResponse, DocumentsListVersionsData, DocumentsListVersionsResponse, DocumentsDeleteDocumentData, DocumentsDeleteDocumentResponse, DocumentsListDocumentTagsData, DocumentsListDocumentTagsResponse, DocumentsAddTagToDocumentData, DocumentsAddTagToDocumentResponse, DocumentsRemoveTagFromDocumentData, DocumentsRemoveTagFromDocumentResponse, DocumentsListUserTagsResponse } from './types.gen';
+import type { DocumentsReadDocumentsData, DocumentsReadDocumentsResponse, DocumentsSearchDocumentsData, DocumentsSearchDocumentsResponse, DocumentsGetDocumentData, DocumentsGetDocumentResponse, DocumentsListVersionsData, DocumentsListVersionsResponse, DocumentsDeleteDocumentData, DocumentsDeleteDocumentResponse, DocumentsListDocumentTagsData, DocumentsListDocumentTagsResponse, DocumentsAddTagToDocumentData, DocumentsAddTagToDocumentResponse, DocumentsRemoveTagFromDocumentData, DocumentsRemoveTagFromDocumentResponse, DocumentsListUserTagsResponse, DocumentsGetGroupsResponse } from './types.gen';
 import type { ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class ItemsService {
@@ -556,6 +556,14 @@ export class DocumentsService {
             url: '/api/v1/documents/bulk',
             body: data.requestBody,
             mediaType: 'application/json',
+            errors: { 422: 'Validation Error' }
+        });
+    }
+
+    public static getGroups(): CancelablePromise<DocumentsGetGroupsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/documents/groups',
             errors: { 422: 'Validation Error' }
         });
     }

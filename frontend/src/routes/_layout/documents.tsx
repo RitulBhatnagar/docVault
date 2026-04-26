@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { ArrowDownUp, FileText, LayoutGrid, List, Trash2, X } from "lucide-react"
+import { ArrowDownUp, FileText, Layers, LayoutGrid, List, Trash2, X } from "lucide-react"
 import { Suspense, useEffect, useState } from "react"
 import { toast } from "sonner"
 
@@ -11,6 +11,7 @@ import AddDocument from "@/components/Documents/AddDocument"
 import BulkUpload from "@/components/Documents/BulkUpload"
 import DriveImportModal from "@/components/Documents/DriveImportModal"
 import { DocumentCard } from "@/components/Documents/DocumentCard"
+import { DocumentGroupView } from "@/components/Documents/DocumentGroupView"
 import { columns } from "@/components/Documents/columns"
 import PendingItems from "@/components/Pending/PendingItems"
 import { Button } from "@/components/ui/button"
@@ -53,7 +54,7 @@ const defaultFilters: Filters = {
   tagId: "",
 }
 
-type ViewMode = "table" | "cards"
+type ViewMode = "table" | "cards" | "groups"
 
 interface SelectionProps {
   rowSelection: Record<string, boolean>
@@ -132,6 +133,14 @@ function DocumentsTableContent({
       onRowSelectionChange={onRowSelectionChange}
       getRowId={(row) => row.id}
     />
+  )
+}
+
+function DocumentGroupsContent() {
+  return (
+    <Suspense fallback={<PendingItems />}>
+      <DocumentGroupView />
+    </Suspense>
   )
 }
 
@@ -227,6 +236,15 @@ function Documents() {
               title="Card view"
             >
               <LayoutGrid className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant={view === "groups" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setView("groups")}
+              title="Group view"
+            >
+              <Layers className="h-3.5 w-3.5" />
             </Button>
           </div>
           <DriveImportModal />
@@ -348,12 +366,16 @@ function Documents() {
         </div>
       )}
 
-      <DocumentsTable
-        filters={filters}
-        view={view}
-        rowSelection={rowSelection}
-        onRowSelectionChange={setRowSelection}
-      />
+      {view === "groups" ? (
+        <DocumentGroupsContent />
+      ) : (
+        <DocumentsTable
+          filters={filters}
+          view={view}
+          rowSelection={rowSelection}
+          onRowSelectionChange={setRowSelection}
+        />
+      )}
     </div>
   )
 }
