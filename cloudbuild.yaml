@@ -1,0 +1,14 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - build
+      - -t
+      - asia-south1-docker.pkg.dev/carbon-caster-450310-s0/docvault/backend
+      - -f
+      - backend/Dockerfile
+      - .
+
+images:
+  - asia-south1-docker.pkg.dev/carbon-caster-450310-s0/docvault/backend

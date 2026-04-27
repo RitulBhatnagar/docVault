@@ -595,11 +595,12 @@ def preview_latest(
     if not version:
         raise HTTPException(status_code=404, detail="No versions found")
 
+    if storage_svc.is_r2_key(version.file_path):
+        return _preview_response(version.file_path, version.original_filename)
     file_path = Path(version.file_path)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
-
-    return _preview_response(file_path, version.original_filename)
+    return _preview_response(str(file_path), version.original_filename)
 
 
 @router.get("/{id}/versions/{version_id}/preview")
@@ -620,11 +621,12 @@ def preview_version(
     if not version or version.document_id != id:
         raise HTTPException(status_code=404, detail="Version not found")
 
+    if storage_svc.is_r2_key(version.file_path):
+        return _preview_response(version.file_path, version.original_filename)
     file_path = Path(version.file_path)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
-
-    return _preview_response(file_path, version.original_filename)
+    return _preview_response(str(file_path), version.original_filename)
 
 
 @router.get("/{id}/download")
@@ -649,15 +651,14 @@ def download_latest(
     if not version:
         raise HTTPException(status_code=404, detail="No versions found")
 
-    file_path = Path(version.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found on disk")
-
     if storage_svc.is_r2_key(version.file_path):
         from fastapi.responses import StreamingResponse  # noqa: PLC0415
         data = storage_svc.get_file_bytes(version.file_path)
         headers = {"Content-Disposition": f'attachment; filename="{version.original_filename}"'}
         return StreamingResponse(io.BytesIO(data), media_type="application/octet-stream", headers=headers)
+    file_path = Path(version.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
     return FileResponse(
         path=str(file_path),
         filename=version.original_filename,
@@ -683,15 +684,14 @@ def download_version(
     if not version or version.document_id != id:
         raise HTTPException(status_code=404, detail="Version not found")
 
-    file_path = Path(version.file_path)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found on disk")
-
     if storage_svc.is_r2_key(version.file_path):
         from fastapi.responses import StreamingResponse  # noqa: PLC0415
         data = storage_svc.get_file_bytes(version.file_path)
         headers = {"Content-Disposition": f'attachment; filename="{version.original_filename}"'}
         return StreamingResponse(io.BytesIO(data), media_type="application/octet-stream", headers=headers)
+    file_path = Path(version.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
     return FileResponse(
         path=str(file_path),
         filename=version.original_filename,
