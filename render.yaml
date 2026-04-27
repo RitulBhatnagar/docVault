@@ -106,8 +106,8 @@ services:
     dockerfilePath: ./frontend/Dockerfile
     dockerContext: .
     plan: free
-    # VITE_API_URL is a Docker build ARG — set to your backend Render URL
-    # e.g. https://docvault-backend.onrender.com
-    buildArgs:
+    # VITE_API_URL is passed as Docker build ARG via envVars
+    # Set to your backend Render URL: https://docvault-backend.onrender.com
+    envVars:
       - key: VITE_API_URL
         sync: false
