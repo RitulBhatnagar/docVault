@@ -1,0 +1,113 @@
+databases:
+  - name: docvault-db
+    databaseName: docvault
+    user: docvault
+    plan: free
+
+services:
+  # ── Backend API ──────────────────────────────────────────────────────────────
+  - type: web
+    name: docvault-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/utils/health-check/
+    # Runs DB migrations inside the container before each deploy
+    preDeployCommand: bash scripts/prestart.sh
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PROJECT_NAME
+        value: "Full Stack FastAPI Project"
+
+      # Generate a random secret — Render stores it as a stable value after first deploy
+      - key: SECRET_KEY
+        generateValue: true
+
+      # Superuser credentials — set these in the Render dashboard after first deploy
+      - key: FIRST_SUPERUSER
+        sync: false
+      - key: FIRST_SUPERUSER_PASSWORD
+        sync: false
+
+      # Postgres — auto-wired from the managed DB above
+      - key: POSTGRES_SERVER
+        fromDatabase:
+          name: docvault-db
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: docvault-db
+          property: port
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: docvault-db
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: docvault-db
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: docvault-db
+          property: password
+
+      # CORS — set to your frontend Render URL, e.g. https://docvault-frontend.onrender.com
+      - key: BACKEND_CORS_ORIGINS
+        sync: false
+      # Frontend host for email links — same URL as above
+      - key: FRONTEND_HOST
+        sync: false
+
+      # Optional: email (leave blank to disable)
+      - key: SMTP_HOST
+        value: ""
+      - key: SMTP_USER
+        value: ""
+      - key: SMTP_PASSWORD
+        value: ""
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_TLS
+        value: "true"
+      - key: EMAILS_FROM_EMAIL
+        value: ""
+
+      # Optional: Cloudflare R2 (falls back to local disk if unset)
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        value: docvault
+
+      # Optional: Google Drive OAuth
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Set to https://<your-backend-url>/api/v1/drive/callback
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: DRIVE_TOKEN_ENCRYPTION_KEY
+        sync: false
+
+      # Optional: Sentry
+      - key: SENTRY_DSN
+        value: ""
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  - type: web
+    name: docvault-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: .
+    plan: free
+    # VITE_API_URL is a Docker build ARG — set to your backend Render URL
+    # e.g. https://docvault-backend.onrender.com
+    buildArgs:
+      - key: VITE_API_URL
+        sync: false
