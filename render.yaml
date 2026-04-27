@@ -13,8 +13,8 @@ services:
     dockerContext: .
     plan: free
     healthCheckPath: /api/v1/utils/health-check/
-    # Runs DB migrations inside the container before each deploy
-    preDeployCommand: bash scripts/prestart.sh
+    # Run migrations then start server (preDeployCommand not supported on free tier)
+    dockerCommand: bash -c "bash scripts/prestart.sh && fastapi run --workers 4 app/main.py"
     envVars:
       - key: ENVIRONMENT
         value: production
